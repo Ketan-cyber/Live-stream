@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Live Stream Player</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdn.socket.io/4.7.1/socket.io.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background:#0f1720; color:#fff; margin:0; padding:20px; display:flex; gap:20px; }
+    .player { flex:2; }
+    .sidebar { flex:1; max-width:360px; }
+    video { width:100%; border-radius:10px; background:#000; }
+    .card { background:#0b1220; padding:12px; border-radius:8px; }
+    #chat { height:320px; overflow:auto; margin-bottom:8px; border-radius:6px; padding:8px; background:#071018; }
+    .chat-msg { margin-bottom:6px; font-size:14px; }
+    .viewer { font-weight:700; margin-bottom:8px; }
+    input[type=text] { width:calc(100% - 84px); padding:8px; border-radius:6px; border:1px solid #223; background:#021018; color:#fff; }
+    button { padding:8px 12px; border-radius:6px; border:none; background:#0077ff; color:white; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div class="player card">
+    <h2>Live Stream</h2>
+    <video id="video" controls autoplay playsinline></video>
+    <p id="status" style="margin-top:8px">Status: <span id="st">Waiting</span></p>
+  </div>
+
+  <div class="sidebar">
+    <div class="card">
+      <div class="viewer">Viewers: <span id="viewerCount">0</span></div>
+      <div id="chat"></div>
+      <div style="display:flex; gap:6px; margin-top:8px;">
+        <input id="nick" placeholder="Nickname" type="text" />
+        <input id="message" placeholder="Message" type="text" />
+        <button id="send">Send</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const socket = io('http://' + window.location.hostname + ':3000', { transports: ['websocket'] });
+  const video = document.getElementById('video');
+  const viewerCountEl = document.getElementById('viewerCount');
+  const chatEl = document.getElementById('chat');
+  const statusEl = document.getElementById('st');
+
+  // stream key from query param or default
+  const urlParams = new URLSearchParams(window.location.search);
+  const streamKey = urlParams.get('stream') || 'mystream';
+  const hlsUrl = '/hls/' + streamKey + '.m3u8';
+
+  // connect signals
+  socket.on('connect', () => {
+    socket.emit('viewer:join', { streamKey });
+  });
+  socket.on('viewers:update', (d)=> { viewerCountEl.innerText = d.viewers; });
+  socket.on('chat:new', (m) => appendChat(m));
+  socket.on('admin:toggle', (d) => {
+    if (!d.allowPlayback) {
+      statusEl.innerText = 'Playback disabled by admin';
+      video.pause();
+    } else {
+      statusEl.innerText = 'Live';
+      tryAutoPlay();
+    }
+  });
+
+  // join event for leave
+  window.addEventListener('beforeunload', () => {
+    socket.emit('viewer:leave');
+  });
+
+  // chat sending
+  document.getElementById('send').onclick = () => {
+    const nick = document.getElementById('nick').value || 'Anon';
+    const text = document.getElementById('message').value || '';
+    if (!text) return;
+    socket.emit('chat:message', { nick, text });
+    document.getElementById('message').value = '';
+  };
+
+  function appendChat(m){
+    const div = document.createElement('div');
+    div.className = 'chat-msg';
+    div.innerHTML = `<b>${escapeHtml(m.nick)}:</b> ${escapeHtml(m.text)} <span style="font-size:11px; color:#89a">${new Date(m.ts).toLocaleTimeString()}</span>`;
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  // HLS player init
+  function tryAutoPlay(){
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        video.play().catch(()=>{ /* autoplay blocked */ statusEl.innerText='Autoplay blocked'; });
+      });
+      hls.on(Hls.Events.ERROR, function(event, data) {
+        statusEl.innerText = 'HLS error: '+ data.type;
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = hlsUrl;
+      video.play().catch(()=> statusEl.innerText='Autoplay blocked');
+    } else {
+      statusEl.innerText = 'HLS not supported';
+    }
+  }
+  function escapeHtml(s){ return (s+'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  tryAutoPlay();
+})();
+</script>
+</body>
+</html>
+

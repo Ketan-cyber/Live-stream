@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Admin Dashboard</title>
+  <script src="https://cdn.socket.io/4.7.1/socket.io.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin:20px; }
+    .card { padding:12px; background:#f5f5f5; border-radius:6px; margin-bottom:12px; }
+    button { padding:8px 12px; border-radius:6px; border:none; background:#0077ff; color:white; }
+    .danger { background:#ff4d4f; }
+  </style>
+</head>
+<body>
+  <h1>Admin Dashboard</h1>
+  <div class="card">
+    <div>Viewers: <span id="vcount">0</span></div>
+    <div style="margin-top:8px">
+      <button id="disable">Disable Playback</button>
+      <button id="enable" style="display:none">Enable Playback</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Chat (last 200)</h3>
+    <div id="chat" style="height:300px; overflow:auto; background:#fff; padding:8px"></div>
+  </div>
+
+<script>
+const socket = io('http://' + window.location.hostname + ':3000');
+const vcount = document.getElementById('vcount');
+const chatEl = document.getElementById('chat');
+
+socket.on('connect', () => {
+  socket.emit('viewer:join', { streamKey: 'admin' }); // admin counts as viewer optionally
+  socket.emit('admin:getChat');
+});
+
+socket.on('viewers:update', d => {
+  vcount.innerText = d.viewers;
+});
+
+socket.on('admin:chatHistory', msgs => {
+  chatEl.innerHTML = '';
+  msgs.forEach(m => {
+    const div = document.createElement('div'); div.innerHTML = `<b>${m.nick}</b>: ${m.text} <small>${new Date(m.ts).toLocaleTimeString()}</small>`;
+    chatEl.appendChild(div);
+  });
+});
+
+socket.on('chat:new', m => {
+  const div = document.createElement('div'); div.innerHTML = `<b>${m.nick}</b>: ${m.text} <small>${new Date(m.ts).toLocaleTimeString()}</small>`;
+  chatEl.appendChild(div);
+});
+
+document.getElementById('disable').onclick = () => toggle(false);
+document.getElementById('enable').onclick = () => toggle(true);
+
+function toggle(allow){
+  fetch('/admin/toggle', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ allow })
+  }).then(res => res.json()).then(json => {
+    document.getElementById('disable').style.display = json.allowPlayback? 'inline-block':'none';
+    document.getElementById('enable').style.display = json.allowPlayback? 'none':'inline-block';
+  });
+}
+</script>
+</body>
+</html>
+
